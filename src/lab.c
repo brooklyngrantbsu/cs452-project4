@@ -19,6 +19,7 @@
 
   void *buddy_malloc(struct buddy_pool *pool, size_t size) {
     if (!pool || size == 0) {
+        errno = ENOMEM;
         return NULL;
     }
 
@@ -35,7 +36,7 @@
             block->prev->next = block->next;
             block->next->prev = block->prev;
 
-            // Split larger blocks until we reach the requested size
+            // Split larger blocks until we reach the size
             while (i > kval) {
                 i--;
                 struct avail *buddy = (struct avail *)((char *)block + (UINT64_C(1) << i));
@@ -55,6 +56,7 @@
     }
 
     // No good block
+    errno = ENOMEM;
     return NULL;
   }
 
