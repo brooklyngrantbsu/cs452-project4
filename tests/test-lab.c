@@ -133,6 +133,120 @@ void test_buddy_init(void)
     }
 }
 
+/**
+ * Test reallocating to larger and smaller sizes
+ */
+void test_buddy_realloc(void) {
+    fprintf(stderr, "->Testing reallocation\n");
+    struct buddy_pool pool;
+    buddy_init(&pool, UINT64_C(1) << MIN_K);
+
+    void *mem = buddy_malloc(&pool, 32);
+    assert(mem != NULL);
+
+    // Reallocate to a larger size
+    void *new_mem = buddy_realloc(&pool, mem, 64);
+    assert(new_mem != NULL);
+
+    // Reallocate to a smaller size
+    void *smaller_mem = buddy_realloc(&pool, new_mem, 16);
+    assert(smaller_mem != NULL);
+
+    buddy_free(&pool, smaller_mem);
+    check_buddy_pool_full(&pool);
+    buddy_destroy(&pool);
+}
+
+/**
+ * Test allocating more than the pool size
+ */
+void test_buddy_malloc_exceed_pool(void) {
+    fprintf(stderr, "->Testing allocating more than the pool size\n");
+    struct buddy_pool pool;
+    buddy_init(&pool, UINT64_C(1) << MIN_K);
+
+    // try and allocate too much
+    void *mem = buddy_malloc(&pool, UINT64_C(1) << (MIN_K + 1));
+    assert(mem == NULL);
+    assert(errno == ENOMEM);
+    check_buddy_pool_full(&pool);
+    buddy_destroy(&pool);
+}
+
+/**
+ * Test multiple allocations and deallocations
+ */
+void test_buddy_multiple_alloc_dealloc(void) {
+    fprintf(stderr, "->Testing multiple allocations and deallocations\n");
+    struct buddy_pool pool;
+    buddy_init(&pool, UINT64_C(1) << MIN_K);
+
+    // Allocate 3 blocks
+    void *blocks[4];
+    for (int i = 0; i < 4; i++) {
+        blocks[i] = buddy_malloc(&pool, 16);
+        assert(blocks[i] != NULL);
+    }
+
+    // Free the blocks in backwards order
+    for (int i = 3; i >= 0; i--) {
+        buddy_free(&pool, blocks[i]);
+    }
+
+    check_buddy_pool_full(&pool);
+    buddy_destroy(&pool);
+}
+
+/**
+ * Test fragmentation
+ */
+void test_buddy_fragmentation(void) {
+    fprintf(stderr, "->Testing fragmentation\n");
+    struct buddy_pool pool;
+    buddy_init(&pool, UINT64_C(1) << MIN_K);
+
+    // Allocate a few blocks of diff sizes
+    void *first = buddy_malloc(&pool, 16);
+    void *second = buddy_malloc(&pool, 64);
+    void *third = buddy_malloc(&pool, 256);
+
+    assert(first != NULL);
+    assert(second != NULL);
+    assert(third != NULL);
+
+    // Free block in the middle
+    buddy_free(&pool, second);
+
+    // make sure that the pool is still in a good, consistent state
+    assert(pool.avail[btok(64)].next != &pool.avail[btok(64)]);
+
+    buddy_free(&pool, first);
+    buddy_free(&pool, third);
+    check_buddy_pool_full(&pool);
+    buddy_destroy(&pool);
+}
+
+/**
+ * Testing reusing already freed memory
+ */
+void test_buddy_reuse(void) {
+    fprintf(stderr, "->Testing memory reuse\n");
+    struct buddy_pool pool;
+    buddy_init(&pool, UINT64_C(1) << MIN_K);
+
+    // Allocate and free block
+    void *block = buddy_malloc(&pool, 64);
+    assert(block != NULL);
+    buddy_free(&pool, block);
+
+    // Allocate a smaller block to maek sure reuse
+    void *reuse = buddy_malloc(&pool, 32);
+    assert(reuse != NULL);
+
+    buddy_free(&pool, reuse);
+    check_buddy_pool_full(&pool);
+    buddy_destroy(&pool);
+}
 
 int main(void) {
   time_t t;
@@ -145,5 +259,10 @@ int main(void) {
   RUN_TEST(test_buddy_init);
   RUN_TEST(test_buddy_malloc_one_byte);
   RUN_TEST(test_buddy_malloc_one_large);
-return UNITY_END();
+  RUN_TEST(test_buddy_realloc);
+  RUN_TEST(test_buddy_malloc_exceed_pool);
+  RUN_TEST(test_buddy_multiple_alloc_dealloc);
+  RUN_TEST(test_buddy_fragmentation);
+  RUN_TEST(test_buddy_reuse);
+  return UNITY_END();
 }
